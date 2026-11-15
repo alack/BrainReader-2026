@@ -72,7 +72,7 @@ async function playRound(round: number, drawer: Page, guesser: Page, drawerName:
 }
 
 test('회원가입부터 로그아웃까지 전체 흐름', async ({ browser }) => {
-  const id = Date.now().toString(36).slice(-5);
+  const id = crypto.randomUUID().slice(0, 6); // 동시에 도는 테스트끼리 아이디가 겹치지 않게 한다
   const [hostName, guestName, roomName] = [`a${id}`, `b${id}`, `방${id}`];
   const host = await (await browser.newContext()).newPage();
   const guest = await (await browser.newContext()).newPage();

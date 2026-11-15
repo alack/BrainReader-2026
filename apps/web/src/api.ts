@@ -1,4 +1,4 @@
-import type { Credentials, PublicUser } from '@brainreader/shared';
+import type { Credentials, PublicUser, RankingEntry } from '@brainreader/shared';
 
 // 서버 응답을 문자열 키로 꺼내 쓰지 않도록 응답 모양을 여기서 한 번 정한다.
 export type AuthResult = { ok: true; user: PublicUser } | { ok: false; error: string };
@@ -32,4 +32,25 @@ export async function fetchMe(): Promise<PublicUser | null> {
 
 export async function logout() {
   await fetch('/api/auth/logout', { method: 'POST' });
+}
+
+export async function fetchRanking(): Promise<RankingEntry[] | null> {
+  try {
+    const res = await fetch('/api/ranking');
+    return res.ok ? (await res.json()).ranking : null;
+  } catch {
+    return null;
+  }
+}
+
+// 이미지 바이트를 그대로 보낸다. 실패하면 이유 코드를 돌려준다.
+export async function uploadAvatar(image: Blob): Promise<string | null> {
+  try {
+    const res = await fetch('/api/me/avatar', { method: 'PUT', headers: { 'Content-Type': image.type }, body: image });
+    if (res.ok) return null;
+    if (res.status === 413) return 'imageTooLarge';
+    return (await res.json().catch(() => null))?.error ?? 'serverError';
+  } catch {
+    return 'network';
+  }
 }

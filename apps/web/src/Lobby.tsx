@@ -1,8 +1,25 @@
-import { useState, type FormEvent } from 'react';
-import { createRoomSchema, type ChatMessage, type CreateRoomInput, type LobbyState, type RoomSummary } from '@brainreader/shared';
+import { useEffect, useState, type FormEvent } from 'react';
+import {
+  createRoomSchema,
+  type ChatMessage,
+  type CreateRoomInput,
+  type LobbyState,
+  type RankingEntry,
+  type RoomSummary,
+} from '@brainreader/shared';
+import { fetchRanking } from './api.ts';
 import { Chat } from './Chat.tsx';
+import { RoomSettingsFields } from './RoomSettingsFields.tsx';
 
-const DEFAULT_ROOM: CreateRoomInput = { name: '', password: '', maxPlayers: 6, rounds: 3, roundTimeSec: 60 };
+const DEFAULT_ROOM: CreateRoomInput = {
+  name: '',
+  password: '',
+  maxPlayers: 6,
+  rounds: 3,
+  roundTimeSec: 60,
+  category: null,
+  mode: 'normal',
+};
 
 export function Lobby({
   lobby,
@@ -43,6 +60,7 @@ export function Lobby({
             </li>
           ))}
         </ul>
+        <RankingBoard />
       </aside>
       <section style={{ gridColumn: '1 / -1' }}>
         <h2>대기실 채팅</h2>
@@ -67,6 +85,7 @@ function RoomItem({ room, onJoin }: { room: RoomSummary; onJoin: (roomId: string
   return (
     <li style={{ border: '1px solid #ccc', padding: 8, marginBottom: 6 }}>
       <strong>{room.name}</strong> {room.locked && '🔒'} {room.playerCount}/{room.maxPlayers}명
+      {room.mode === 'computer' && ' · 컴퓨터 모드'} · {room.category ?? '전체'}
       {room.playing && ' · 게임 중'}{' '}
       <button onClick={() => join()} disabled={full}>
         {full ? '꽉 참' : '입장'}
@@ -106,7 +125,7 @@ function CreateRoomForm({ onCreate }: { onCreate: (input: CreateRoomInput) => Pr
 
   return (
     <form onSubmit={submit} style={{ display: 'grid', gap: 6, maxWidth: 320, marginTop: 8 }}>
-      <input aria-label="방 이름" placeholder="방 이름" value={form.name} onChange={(e) => set('name', e.target.value)} />
+      <RoomSettingsFields form={form} set={set} />
       <input
         aria-label="방 비밀번호 설정"
         placeholder="비밀번호 (비우면 공개 방)"
@@ -114,22 +133,11 @@ function CreateRoomForm({ onCreate }: { onCreate: (input: CreateRoomInput) => Pr
         onChange={(e) => set('password', e.target.value)}
       />
       <label>
-        최대 인원{' '}
-        <input type="number" min={2} max={8} value={form.maxPlayers} onChange={(e) => set('maxPlayers', Number(e.target.value))} />
-      </label>
-      <label>
-        라운드 수{' '}
-        <input type="number" min={1} max={10} value={form.rounds} onChange={(e) => set('rounds', Number(e.target.value))} />
-      </label>
-      <label>
-        제한 시간(초){' '}
-        <input
-          type="number"
-          min={30}
-          max={180}
-          value={form.roundTimeSec}
-          onChange={(e) => set('roundTimeSec', Number(e.target.value))}
-        />
+        모드{' '}
+        <select value={form.mode} onChange={(e) => set('mode', e.target.value as CreateRoomInput['mode'])}>
+          <option value="normal">함께 그리기</option>
+          <option value="computer">컴퓨터 그림 맞히기</option>
+        </select>
       </label>
       <div style={{ display: 'flex', gap: 6 }}>
         <button type="submit">만들기</button>
@@ -139,5 +147,34 @@ function CreateRoomForm({ onCreate }: { onCreate: (input: CreateRoomInput) => Pr
       </div>
       {error && <p role="alert">{error}</p>}
     </form>
+  );
+}
+
+// 대기실에 들어올 때마다 새로 받는다. 게임을 마치고 방에서 나오면 갱신된 순위가 보인다.
+function RankingBoard() {
+  const [ranking, setRanking] = useState<RankingEntry[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchRanking().then((r) => {
+      if (!cancelled) setRanking(r);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <section>
+      <h2>랭킹</h2>
+      {ranking === null && <p>불러오는 중</p>}
+      {ranking?.length === 0 && <p>아직 끝난 게임이 없습니다.</p>}
+      <ol data-testid="ranking-board">
+        {ranking?.map((r) => (
+          <li key={r.id}>
+            {r.username} {r.totalScore}점 ({r.gamesPlayed}판 {r.wins}승)
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }

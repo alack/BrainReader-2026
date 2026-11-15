@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import type {
-  Ack,
-  ChatMessage,
-  CreateRoomInput,
-  LobbyState,
-  Player,
-  PublicGameEvent,
-  PublicUser,
-  RoomView,
-  Stroke,
+import {
+  COMPUTER_ID,
+  type Ack,
+  type ChatMessage,
+  type CreateRoomInput,
+  type LobbyState,
+  type Player,
+  type PublicGameEvent,
+  type PublicUser,
+  type RoomSettingsInput,
+  type RoomView,
+  type Stroke,
 } from '@brainreader/shared';
+import { Avatar, AvatarUpload } from './Avatar.tsx';
 import { clock, socket } from './socket.ts';
 import { useSocketEvent } from './useSocketEvent.ts';
 import { errorText } from './errors.ts';
@@ -36,8 +39,10 @@ function describe(event: PublicGameEvent, nameOf: (id: string) => string): strin
       return '게임을 시작합니다.';
     case 'roundStarted':
       return `${event.round}라운드: ${nameOf(event.drawerId)}님이 그립니다.`;
-    case 'correctGuess':
-      return `${nameOf(event.playerId)}님이 ${event.order}번째로 맞혔습니다! (+${event.points}점, 출제자 +${event.drawerPoints}점)`;
+    case 'correctGuess': {
+      const drawer = event.drawerId === COMPUTER_ID ? '' : `, 출제자 +${event.drawerPoints}점`;
+      return `${nameOf(event.playerId)}님이 ${event.order}번째로 맞혔습니다! (+${event.points}점${drawer})`;
+    }
     case 'roundEnded': {
       const why = { allGuessed: '모두 맞혔습니다', timeout: '시간 초과', drawerLeft: '출제자가 나갔습니다' }[event.reason];
       return `${why}. 정답은 "${event.word}"`;
@@ -76,6 +81,7 @@ export function Home({
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [word, setWord] = useState<{ round: number; word: string } | null>(null);
   const [ranking, setRanking] = useState<Player[] | null>(null);
+  const [avatarVersion, setAvatarVersion] = useState(() => Date.now());
   const roomRef = useRef(room);
   roomRef.current = room;
 
@@ -89,7 +95,8 @@ export function Home({
   useSocketEvent('room:state', setRoom);
   useSocketEvent('room:chat', (m) => setRoomMessages((list) => append(list, m)));
   useSocketEvent('game:event', (event) => {
-    const nameOf = (id: string) => roomRef.current?.game.players.find((p) => p.id === id)?.name ?? '?';
+    const nameOf = (id: string) =>
+      id === COMPUTER_ID ? '컴퓨터' : (roomRef.current?.game.players.find((p) => p.id === id)?.name ?? '?');
     setRoomMessages((list) => append(list, notice(describe(event, nameOf))));
     if (event.type === 'gameStarted') setRanking(null);
     if (event.type === 'gameEnded') setRanking(event.ranking);
@@ -148,6 +155,8 @@ export function Home({
       await request(socket.timeout(5000).emitWithAck('room:leave'));
       setRoom(null);
     },
+    updateRoom: async (settings: RoomSettingsInput) =>
+      failure(await request(socket.timeout(5000).emitWithAck('room:update', settings))),
     ready: async (ready: boolean) => {
       const err = failure(await request(socket.timeout(5000).emitWithAck('room:ready', ready)));
       if (err) setRoomMessages((list) => append(list, notice(err)));
@@ -173,8 +182,10 @@ export function Home({
   return (
     <section>
       <p>
+        <Avatar userId={user.id} version={avatarVersion} size={32} />{' '}
         <strong data-testid="username">{user.username}</strong>님{' '}
         <button onClick={onLogout}>로그아웃</button> <span data-testid="status">{STATUS_TEXT[status]}</span>
+        <AvatarUpload onUploaded={() => setAvatarVersion(Date.now())} />
       </p>
       {status === 'connected' && room && (
         <RoomScreen
@@ -189,6 +200,8 @@ export function Home({
           onSendChat={api.sendRoomChat}
           onStroke={api.stroke}
           onClear={api.clear}
+          onUpdate={api.updateRoom}
+          avatarVersion={avatarVersion}
         />
       )}
       {status === 'connected' && !room && lobby && (

@@ -3,6 +3,9 @@
 
 export type PlayerId = string;
 
+// 컴퓨터 모드의 출제자. 플레이어 목록에는 없다.
+export const COMPUTER_ID: PlayerId = 'computer';
+
 export interface Player {
   id: PlayerId;
   name: string;

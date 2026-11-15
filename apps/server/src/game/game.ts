@@ -3,14 +3,15 @@
 // 소켓, 타이머, DB를 모른다. 현재 시각(now)과 단어 뽑기(pickWord)는 밖에서 받고,
 // 상태를 바꾼 결과로 "무슨 일이 일어났는지"를 GameEvent 목록으로 돌려준다.
 // 누구에게 어떻게 보낼지는 소켓 계층이 정한다.
-import type {
-  GameEndReason,
-  GameSnapshot,
-  Player,
-  PlayerId,
-  PublicGameEvent,
-  PublicPhase,
-  RoundEndReason,
+import {
+  COMPUTER_ID,
+  type GameEndReason,
+  type GameSnapshot,
+  type Player,
+  type PlayerId,
+  type PublicGameEvent,
+  type PublicPhase,
+  type RoundEndReason,
 } from '@brainreader/shared';
 
 export interface GameSettings {
@@ -18,7 +19,12 @@ export interface GameSettings {
   rounds: number;
   roundTimeMs: number;
   roundEndPauseMs: number;
+  // true면 컴퓨터가 매 라운드 출제하고(pickWord가 저장된 그림을 고른다), 사람은 모두 맞히는 쪽이다.
+  computerDraws?: boolean;
 }
+
+// 방장이 게임 시작 전에 바꿀 수 있는 값.
+export type GameSettingsUpdate = Pick<GameSettings, 'maxPlayers' | 'rounds' | 'roundTimeMs'>;
 
 // 점수 규칙. 정답자는 맞힌 순서대로 10, 8, 6, 4, 2, 2...점,
 // 출제자는 누가 맞힐 때마다 2점을 받는다. 아무도 못 맞히면 출제자는 0점이다.
@@ -63,7 +69,8 @@ export type GameErrorCode =
   | 'unknownPlayer'
   | 'notInLobby'
   | 'drawerCannotChat'
-  | 'alreadyGuessed';
+  | 'alreadyGuessed'
+  | 'tooManyPlayers';
 
 export class GameError extends Error {
   constructor(public readonly code: GameErrorCode) {
@@ -72,6 +79,7 @@ export class GameError extends Error {
 }
 
 export const MIN_PLAYERS = 2;
+export const MIN_PLAYERS_WITH_COMPUTER = 1;
 
 export class Game {
   private readonly players: Player[] = []; // 입장 순서. 출제 순서도 이 순서를 따른다.
@@ -80,7 +88,7 @@ export class Game {
   private drawerIndex = -1;
 
   constructor(
-    private readonly settings: GameSettings,
+    private settings: GameSettings,
     private readonly pickWord: () => string,
   ) {}
 
@@ -101,7 +109,7 @@ export class Game {
     if (index <= this.drawerIndex) this.drawerIndex -= 1;
 
     if (this.phase.kind === 'lobby') return this.tryStart(now);
-    if (this.players.length < MIN_PLAYERS) return this.endGame('notEnoughPlayers');
+    if (this.players.length < this.minPlayers()) return this.endGame('notEnoughPlayers');
     if (this.phase.kind === 'drawing' && this.phase.drawerId === id) {
       return this.endRound('drawerLeft', now);
     }
@@ -132,7 +140,9 @@ export class Game {
         const order = phase.correctIds.length;
         const points = guessPoints(order);
         player.score += points;
-        this.requirePlayer(phase.drawerId).score += DRAWER_POINTS_PER_GUESS;
+        // 컴퓨터는 점수를 받지 않는다.
+        const drawerPoints = phase.drawerId === COMPUTER_ID ? 0 : DRAWER_POINTS_PER_GUESS;
+        if (drawerPoints > 0) this.requirePlayer(phase.drawerId).score += drawerPoints;
 
         return [
           {
@@ -141,7 +151,7 @@ export class Game {
             order,
             points,
             drawerId: phase.drawerId,
-            drawerPoints: DRAWER_POINTS_PER_GUESS,
+            drawerPoints,
           },
           ...this.endRoundIfAllGuessed(now),
         ];
@@ -159,6 +169,13 @@ export class Game {
       return this.round >= this.settings.rounds ? this.endGame('finished') : this.startRound(now);
     }
     return [];
+  }
+
+  // 게임 시작 전에만 바꿀 수 있다. 지금 인원보다 정원을 줄일 수는 없다.
+  configure(update: GameSettingsUpdate) {
+    if (this.phase.kind !== 'lobby') throw new GameError('notInLobby');
+    if (update.maxPlayers < this.players.length) throw new GameError('tooManyPlayers');
+    this.settings = { ...this.settings, ...update };
   }
 
   // 지금 그릴 수 있는 사람. 그리는 중이 아니면 아무도 없다.
@@ -186,8 +203,12 @@ export class Game {
     return { players, phase, rounds: this.settings.rounds };
   }
 
+  private minPlayers() {
+    return this.settings.computerDraws ? MIN_PLAYERS_WITH_COMPUTER : MIN_PLAYERS;
+  }
+
   private tryStart(now: number): GameEvent[] {
-    if (this.players.length < MIN_PLAYERS) return [];
+    if (this.players.length < this.minPlayers()) return [];
     if (!this.players.every((p) => p.ready)) return [];
 
     for (const p of this.players) p.score = 0;
@@ -198,22 +219,27 @@ export class Game {
 
   private startRound(now: number): GameEvent[] {
     this.round += 1;
-    this.drawerIndex = (this.drawerIndex + 1) % this.players.length;
-    const drawer = this.players[this.drawerIndex]!;
+    let drawerId: PlayerId;
+    if (this.settings.computerDraws) {
+      drawerId = COMPUTER_ID;
+    } else {
+      this.drawerIndex = (this.drawerIndex + 1) % this.players.length;
+      drawerId = this.players[this.drawerIndex]!.id;
+    }
     const word = this.pickWord();
     const endsAt = now + this.settings.roundTimeMs;
 
     this.phase = {
       kind: 'drawing',
       round: this.round,
-      drawerId: drawer.id,
+      drawerId,
       word,
       endsAt,
       correctIds: [],
     };
     return [
-      { type: 'roundStarted', round: this.round, drawerId: drawer.id, endsAt },
-      { type: 'wordAssigned', round: this.round, drawerId: drawer.id, word },
+      { type: 'roundStarted', round: this.round, drawerId, endsAt },
+      { type: 'wordAssigned', round: this.round, drawerId, word },
     ];
   }
 

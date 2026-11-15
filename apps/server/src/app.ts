@@ -5,8 +5,10 @@ import type { Db } from './db.ts';
 import { Presence } from './presence.ts';
 import { SESSION_COOKIE, registerAuthRoutes } from './auth/routes.ts';
 import { findSessionUser } from './auth/store.ts';
-import { pickRandomWord } from './game/words.ts';
-import { RoomManager, type RoomTiming } from './rooms/room-manager.ts';
+import { registerAvatarRoutes } from './auth/avatar.ts';
+import { registerRankingRoutes } from './content/ranking.ts';
+import { pickDrawing, pickWord as pickWordFromDb } from './content/words.ts';
+import { RoomManager, type RoomContent, type RoomTiming } from './rooms/room-manager.ts';
 import { registerRoomHandlers } from './rooms/handlers.ts';
 import { createGameRunner } from './rooms/game-runner.ts';
 import type { AppServer } from './socket-types.ts';
@@ -14,23 +16,35 @@ import type { AppServer } from './socket-types.ts';
 export interface AppDeps {
   db: Db;
   logger?: boolean;
-  pickWord?: () => string;
+  pickWord?: RoomContent['pickWord']; // 테스트에서 제시어를 고정할 때만 넘긴다
   timing?: RoomTiming; // 테스트에서 라운드 시간을 줄일 때만 넘긴다
 }
 
 // 서버 구성 요소를 만들어 돌려주기만 한다. listen은 진입점(index.ts)이 한다.
 // 라우트와 소켓 핸들러가 필요한 것(db, presence, rooms, runner)은 여기서 인자로 넘긴다.
-export function buildApp({ db, logger = true, pickWord = pickRandomWord, timing }: AppDeps) {
+export function buildApp({ db, logger = true, pickWord, timing }: AppDeps) {
   const fastify = Fastify({ logger });
   fastify.register(fastifyCookie);
 
   const io: AppServer = new Server(fastify.server);
   const presence = new Presence();
-  const rooms = new RoomManager(pickWord, timing);
-  const runner = createGameRunner({ io, rooms, presence });
+  const content: RoomContent = {
+    pickWord:
+      pickWord ??
+      ((category) => {
+        const word = pickWordFromDb(db, category);
+        if (word === null) throw new Error('noWords'); // 방을 만들 때 확인한다
+        return word;
+      }),
+    pickDrawing: (category) => pickDrawing(db, category),
+  };
+  const rooms = new RoomManager(content, timing);
+  const runner = createGameRunner({ io, rooms, presence, db });
 
   fastify.get('/api/health', async () => ({ ok: true }));
   registerAuthRoutes(fastify, db, presence);
+  registerAvatarRoutes(fastify, db);
+  registerRankingRoutes(fastify, db);
 
   // 연결을 받기 전에 세션 쿠키로 유저를 확인한다. 로그인하지 않은 연결은 여기서 거절된다.
   io.use((socket, next) => {
@@ -45,7 +59,7 @@ export function buildApp({ db, logger = true, pickWord = pickRandomWord, timing 
     const { user } = socket.data;
     presence.connect(user.id, socket);
     socket.emit('hello', { serverTime: Date.now(), user });
-    registerRoomHandlers(socket, { io, rooms, presence, runner, log: fastify.log });
+    registerRoomHandlers(socket, { io, rooms, presence, runner, db, log: fastify.log });
   });
 
   return { fastify, io, rooms };

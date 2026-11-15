@@ -1,6 +1,6 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { hash, verify } from '@node-rs/argon2';
-import { credentialsSchema } from '@brainreader/shared';
+import { credentialsSchema, type PublicUser } from '@brainreader/shared';
 import type { Db } from '../db.ts';
 import type { Presence } from '../presence.ts';
 import {
@@ -67,9 +67,14 @@ export function registerAuthRoutes(fastify: FastifyInstance, db: Db, presence: P
   });
 
   fastify.get('/api/auth/me', async (request, reply) => {
-    const token = request.cookies[SESSION_COOKIE];
-    const user = token ? findSessionUser(db, token, Date.now()) : null;
+    const user = sessionUser(db, request);
     if (!user) return reply.code(401).send({ error: 'unauthorized' });
     return { user };
   });
+}
+
+// 요청의 세션 쿠키로 유저를 찾는다. 로그인이 필요한 라우트는 유저를 URL이나 본문이 아니라 여기서 얻는다.
+export function sessionUser(db: Db, request: FastifyRequest): PublicUser | null {
+  const token = request.cookies[SESSION_COOKIE];
+  return token ? findSessionUser(db, token, Date.now()) : null;
 }

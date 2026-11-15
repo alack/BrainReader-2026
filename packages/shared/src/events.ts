@@ -4,7 +4,15 @@
 import type { PublicUser } from './auth.ts';
 import type { Stroke } from './drawing.ts';
 import type { PublicGameEvent } from './game.ts';
-import type { Ack, ChatMessage, CreateRoomInput, JoinRoomInput, LobbyState, RoomView } from './rooms.ts';
+import type {
+  Ack,
+  ChatMessage,
+  CreateRoomInput,
+  JoinRoomInput,
+  LobbyState,
+  RoomSettingsInput,
+  RoomView,
+} from './rooms.ts';
 
 export interface ServerToClientEvents {
   hello: (payload: { serverTime: number; user: PublicUser }) => void;
@@ -30,6 +38,8 @@ export interface ClientToServerEvents {
   'room:leave': (ack: (res: Ack) => void) => void;
   'room:chat': (text: string, ack: (res: Ack) => void) => void;
   'room:ready': (ready: boolean, ack: (res: Ack) => void) => void;
+  // 방장만, 게임 시작 전에만 받아 준다.
+  'room:update': (input: RoomSettingsInput, ack: (res: Ack<RoomView>) => void) => void;
   'draw:stroke': (stroke: Stroke) => void;
   'draw:clear': () => void;
 }
