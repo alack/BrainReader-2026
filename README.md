@@ -1,33 +1,90 @@
-# WebSystemDesignProject
+# BrainReader
 
-This project was generated with [Angular CLI](https://github.com/angular/angular-cli) version 1.5.0.
+한 명이 제시어를 그리고 나머지가 채팅으로 맞히는 실시간 그림 맞히기 게임.
 
-## Development server
+2017년 아주대학교 웹시스템설계 수업 팀 프로젝트로 만들었고, 최종 발표에서 기능이 정상 동작하지 않았다. 이 저장소는 그 프로젝트를 새 기술 스택으로 다시 만들어 완성하는 작업이다.
 
-Run `ng serve` for a dev server. Navigate to `http://localhost:4200/`. The app will automatically reload if you change any of the source files.
+## 현재 상태
 
-## Code scaffolding
+- 버전: v0.06 (2026-11-15)
+- **브라우저 두 개로 로그인부터 게임 종료까지 한 판이 끝난다.** Playwright E2E(`e2e/one-game.spec.ts`)로 확인했고 3회 반복해도 통과한다.
+- 게임방: 준비, 전원 준비 시 시작, 출제자에게만 제시어, 그리기(색 10개, 굵기 3단계, 지우개, 전체 지우기), 남은 시간, 정답과 차등 점수, 라운드 진행, 게임 결과.
+- 대기실: 방 목록(검색), 방 만들기, 비밀번호 방, 접속자 목록, 채팅 (v0.05). 회원가입, 로그인, 소켓 인증 (v0.04).
+- 단위·통합 테스트 55개(게임 규칙 27, 인증 10, 대기실·방 10, 게임 진행·그리기 8)가 통과한다.
+- 아직 없는 것: 랭킹, 프로필 이미지, 단어 카테고리와 DB 단어, 방 설정 수정, 컴퓨터 모드(v0.07). 새로고침하면 방에서 나가진다.
+- 2017년 원본(Angular 5 + Express + MongoDB)은 `legacy/`에 그대로 있다. 최신 Node에서 실행은 확인하지 않았다.
 
-Run `ng generate component component-name` to generate a new component. You can also use `ng generate directive|pipe|service|class|guard|interface|enum|module`.
+## 실행
 
-## Build
+Node 26 LTS가 필요하다.
 
-Run `ng build` to build the project. The build artifacts will be stored in the `dist/` directory. Use the `-prod` flag for a production build.
+```bash
+npm install
+npm run dev
+```
 
-## Running unit tests
+브라우저에서 http://localhost:5173 을 연다. 서버는 3000번 포트에서 돌고, 개발 중에는 Vite가 `/api`와 `/socket.io` 요청을 서버로 넘긴다.
 
-Run `ng test` to execute the unit tests via [Karma](https://karma-runner.github.io).
+| 명령 | 내용 |
+|---|---|
+| `npm run dev` | 서버(`apps/server`)와 웹(`apps/web`)을 함께 실행 |
+| `npm run typecheck` | 모든 워크스페이스 타입 검사 |
+| `npm test` | 단위·통합 테스트 (Vitest) |
+| `npm run e2e` | 두 브라우저 E2E (Playwright, 설치된 Chrome 사용). 한 판(`one-game`)과 회원가입부터 로그아웃까지 전체 흐름(`full-flow`). 3100·5180 포트에 테스트 서버를 따로 띄운다 |
 
-## Running end-to-end tests
+서버 환경 변수
 
-Run `ng e2e` to execute the end-to-end tests via [Protractor](http://www.protractortest.org/).
+| 이름 | 기본값 | 내용 |
+|---|---|---|
+| `PORT` | `3000` | 서버 포트 |
+| `HOST` | `127.0.0.1` | 서버 주소 |
+| `DATABASE_PATH` | `data/brainreader.sqlite` | SQLite 파일 위치 (`apps/server` 기준). 없으면 만들고 스키마를 적용한다 |
 
-## nohup
+## 저장소 구성
 
-if you need to run this project without care of terminal or session logout, run with 'nohup' command like below.
-(nohup mongod --dbpath ./& nohup ng build&&node server&)
+| 이름 | 내용 |
+|---|---|
+| `main` 브랜치 | 재작성 작업 |
+| `review-2017` 브랜치 | 2017년 원본의 잘못된 점과 바른 구현 방식 분석 (`docs/REVIEW-2017.md`) |
+| `v2017-final` 태그 | 2017-12-15 발표 시점 원본 |
 
+## 게임 규칙
 
-## Further help
+- 2명 이상이 모두 준비하면 시작한다. 출제는 입장 순서대로 돈다.
+- 출제자가 아닌 사람이 채팅으로 정답을 맞힌다. 띄어쓰기와 대소문자는 무시한다.
+- 맞힌 순서대로 10, 8, 6, 4, 2점(다섯 번째부터 2점)을 받고, 출제자는 정답자 한 명마다 2점을 받는다.
+- 모두 맞히거나, 제한 시간이 끝나거나, 출제자가 나가면 라운드가 끝난다. 3초 동안 정답을 보여 주고 다음 라운드로 넘어간다.
+- 출제자와 이미 맞힌 사람은 라운드가 끝날 때까지 채팅할 수 없다.
 
-To get more help on the Angular CLI use `ng help` or go check out the [Angular CLI README](https://github.com/angular/angular-cli/blob/master/README.md).
+## 기술 스택
+
+| 영역 | 선택 | 이유 |
+|---|---|---|
+| 언어 | TypeScript (서버, 클라이언트 모두) | 원본은 서버가 JS라 클라이언트와 응답 형식이 어긋났다 (REVIEW S19, C15) |
+| 구조 | npm workspaces: `apps/server`, `apps/web`, `packages/shared` | 소켓 이벤트 타입과 검증 스키마를 한 곳에서 공유 |
+| 서버 | Node 26 LTS, Fastify 5, Socket.IO 4 | 방, 재접속, ack를 Socket.IO가 처리하고 이벤트에 타입을 붙일 수 있다 |
+| 검증 | zod | 소켓 페이로드와 HTTP 본문을 같은 스키마로 검사 |
+| 웹 | React 19, Vite 8 | 컴포넌트 수명과 구독 정리(`useEffect` 반환)가 명시적 |
+| DB | Node 내장 `node:sqlite`, SQL 직접 작성 | 유저, 단어, 저장된 그림 정도라 별도 DB 서버가 필요 없다. 방과 게임 상태는 메모리. Drizzle은 `node:sqlite`를 지원하지 않고 대안(`better-sqlite3`)은 네이티브 빌드가 필요해서 뺐다 |
+| 인증 | 세션 쿠키(DB에는 토큰 해시만 저장), `@node-rs/argon2` | 원본의 `bcrypt` 네이티브 빌드 문제를 피한다 |
+| 테스트 | Vitest(게임 상태 기계), Playwright(두 브라우저 E2E) | |
+
+## 단계
+
+완성 기준은 브라우저 두 개 이상으로 로그인부터 게임 종료까지 한 판이 끊기지 않고 끝나는 것이고, 이것을 E2E 테스트로 고정한다.
+
+| 버전 | 내용 | 완료 기준 |
+|---|---|---|
+| v0.02 | 원본을 `legacy/`로 이동, 워크스페이스 뼈대 | `npm run dev`로 서버와 웹이 뜨고 소켓이 연결됨 |
+| v0.03 | 게임 상태 기계(순수 모듈)와 단위 테스트 | 정답, 시간 초과, 출제자 이탈, 마지막 라운드, 1인 남음 테스트 통과 |
+| v0.04 | 회원가입, 로그인, 세션, 소켓 인증 | 소켓이 세션 유저로 식별되고, 응답에 비밀번호 해시가 없음 |
+| v0.05 | 대기실, 방 생성/입장/비밀번호, 채팅, 접속자 목록 | 방 목록이 새로고침 없이 갱신됨 |
+| v0.06 | 게임방, 획 단위 그리기, 타이머, 정답, 점수 | 두 브라우저 E2E 한 판 통과 |
+| v0.07 | 랭킹, 프로필 이미지, 단어 카테고리, 방 설정 수정, 컴퓨터 모드 | 기능별 E2E 추가 |
+| v0.08 | 배포 구성, 환경 변수 | 다른 PC에서 접속해 한 판 통과 |
+
+## 원작자
+
+2017 웹시스템설계 팀(4명): alack, Yoo Jaehong, woaksths, Crosstreet74
+
+커밋 기록에서 Kim Ji Soo는 alack, yoojaehong92는 Yoo Jaehong, j_man은 woaksths와 같은 사람이다.
