@@ -21,7 +21,8 @@ afterEach(async () => {
 });
 
 export async function startServer(deps: Partial<AppDeps> = {}) {
-  const app = buildApp({ db: openDb(':memory:'), logger: false, pickWord: () => '사과', ...deps });
+  const db = openDb(':memory:');
+  const app = buildApp({ db, logger: false, pickWord: () => '사과', ...deps });
   apps.push(app);
   await app.fastify.listen({ port: 0, host: '127.0.0.1' });
   const url = `http://127.0.0.1:${(app.fastify.server.address() as AddressInfo).port}`;
@@ -43,7 +44,7 @@ export async function startServer(deps: Partial<AppDeps> = {}) {
     await next(client, 'lobby:state');
     return client;
   };
-  return { app, login };
+  return { app, db, login };
 }
 
 type Payload<E extends keyof ServerToClientEvents> = Parameters<ServerToClientEvents[E]>[0];

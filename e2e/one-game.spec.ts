@@ -22,7 +22,7 @@ async function hasInk(page: Page) {
 }
 
 test('두 브라우저로 로그인부터 게임 종료까지 한 판', async ({ browser }) => {
-  const id = Date.now().toString(36).slice(-5);
+  const id = crypto.randomUUID().slice(0, 6); // 동시에 도는 테스트끼리 아이디가 겹치지 않게 한다
   const [drawerName, guesserName, roomName] = [`a${id}`, `b${id}`, `판${id}`];
 
   // 쿠키가 섞이지 않도록 브라우저 컨텍스트를 둘로 나눈다.

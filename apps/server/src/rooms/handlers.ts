@@ -1,7 +1,17 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
 import { hash, verify } from '@node-rs/argon2';
-import { chatTextSchema, createRoomSchema, joinRoomSchema, strokeSchema, type Ack } from '@brainreader/shared';
+import {
+  chatTextSchema,
+  createRoomSchema,
+  joinRoomSchema,
+  roomSettingsSchema,
+  strokeSchema,
+  type Ack,
+  type RoomView,
+} from '@brainreader/shared';
+import type { Db } from '../db.ts';
+import { hasDrawings, hasWords } from '../content/words.ts';
 import { GameError, type GameEvent } from '../game/game.ts';
 import type { Presence } from '../presence.ts';
 import type { AppServer, AppSocket } from '../socket-types.ts';
@@ -18,10 +28,11 @@ export interface RoomHandlerDeps {
   rooms: RoomManager;
   presence: Presence;
   runner: GameRunner;
+  db: Db;
   log: FastifyBaseLogger;
 }
 
-export function registerRoomHandlers(socket: AppSocket, { io, rooms, presence, runner, log }: RoomHandlerDeps) {
+export function registerRoomHandlers(socket: AppSocket, { io, rooms, presence, runner, db, log }: RoomHandlerDeps) {
   const { user } = socket.data;
 
   // 핸들러 안에서 난 예외는 여기서 잡는다.
@@ -107,6 +118,11 @@ export function registerRoomHandlers(socket: AppSocket, { io, rooms, presence, r
       if (!parsed.success) return reply({ ok: false, error: 'invalidInput' });
 
       const { password, ...settings } = parsed.data;
+      // 게임을 시작할 수 없는 방은 만들지 않는다. 2017년에는 단어가 없으면 게임 도중 서버가 죽었다 (REVIEW S17).
+      if (settings.mode === 'normal' && !hasWords(db, settings.category)) return reply({ ok: false, error: 'noWords' });
+      if (settings.mode === 'computer' && !hasDrawings(db, settings.category)) {
+        return reply({ ok: false, error: 'noDrawings' });
+      }
       const room = rooms.create({ ...settings, passwordHash: password ? await hash(password) : null });
       reply({ ok: true, data: enter(room) });
     }),
@@ -172,6 +188,32 @@ export function registerRoomHandlers(socket: AppSocket, { io, rooms, presence, r
       // 준비 표시만 바뀌고 게임이 시작되지 않았어도 모두의 화면에 반영한다.
       runner.emitRoomState(room);
       broadcastLobby();
+    }),
+  );
+
+  socket.on(
+    'room:update',
+    guard((input, ack) => {
+      const reply = replier<RoomView>(ack);
+      const room = currentRoom();
+      if (!room) return reply({ ok: false, error: 'notInRoom' });
+      if (rooms.view(room).hostId !== user.id) return reply({ ok: false, error: 'notHost' });
+      const parsed = roomSettingsSchema.safeParse(input);
+      if (!parsed.success) return reply({ ok: false, error: 'invalidInput' });
+      const settings = parsed.data;
+      if (room.mode === 'normal' && !hasWords(db, settings.category)) return reply({ ok: false, error: 'noWords' });
+      if (room.mode === 'computer' && !hasDrawings(db, settings.category)) {
+        return reply({ ok: false, error: 'noDrawings' });
+      }
+      try {
+        rooms.update(room, settings); // 게임 중이거나 정원이 지금 인원보다 작으면 GameError
+      } catch (err) {
+        if (err instanceof GameError) return reply({ ok: false, error: err.code });
+        throw err;
+      }
+      runner.emitRoomState(room);
+      broadcastLobby();
+      reply({ ok: true, data: rooms.view(room) });
     }),
   );
 

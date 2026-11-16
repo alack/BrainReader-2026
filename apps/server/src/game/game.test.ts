@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { COMPUTER_ID } from '@brainreader/shared';
 import { Game, GameError, guessPoints, type GameEvent, type GameSettings } from './game.ts';
 
 const SETTINGS: GameSettings = {
@@ -264,5 +265,56 @@ describe('나가기', () => {
     const { game } = startedGame(['A', 'B', 'C']);
     expect(game.removePlayer('Z', 10)).toEqual([]);
     expect(game.snapshot().players.map((p) => p.id)).toEqual(['A', 'B', 'C']);
+  });
+});
+
+describe('컴퓨터 모드', () => {
+  it('혼자서도 시작하고, 출제자는 매 라운드 컴퓨터다', () => {
+    const { game, events } = startedGame(['A'], { computerDraws: true, rounds: 2 });
+    expect(events).toContainEqual({ type: 'roundStarted', round: 1, drawerId: COMPUTER_ID, endsAt: 60_000 });
+    expect(types(game.chat('A', '사과', 10))).toEqual(['correctGuess', 'roundEnded']); // 혼자면 바로 끝난다
+    game.tick(10 + 3_000);
+    expect(drawing(game)).toMatchObject({ round: 2, drawerId: COMPUTER_ID });
+  });
+
+  it('맞힌 사람만 점수를 받고 컴퓨터는 점수가 없다', () => {
+    const { game } = startedGame(['A', 'B'], { computerDraws: true });
+    const events = game.chat('A', '사과', 10);
+    expect(events[0]).toMatchObject({ type: 'correctGuess', playerId: 'A', points: 10, drawerPoints: 0 });
+    expect(game.snapshot().players.map((p) => p.score)).toEqual([10, 0]);
+  });
+
+  it('사람은 누구나 채팅으로 맞힐 수 있다', () => {
+    const { game } = startedGame(['A', 'B'], { computerDraws: true });
+    game.chat('A', '사과', 10);
+    expect(types(game.chat('B', '사과', 20))).toEqual(['correctGuess', 'roundEnded']);
+  });
+});
+
+describe('설정 변경', () => {
+  it('게임 시작 전에는 라운드 수와 정원을 바꿀 수 있다', () => {
+    const game = makeGame();
+    game.addPlayer('A', 'A');
+    game.configure({ maxPlayers: 2, rounds: 1, roundTimeMs: 30_000 });
+    expect(game.snapshot().rounds).toBe(1);
+    game.addPlayer('B', 'B');
+    expect(() => game.addPlayer('C', 'C')).toThrow(new GameError('roomFull'));
+  });
+
+  it('지금 인원보다 정원을 줄일 수 없다', () => {
+    const game = makeGame();
+    game.addPlayer('A', 'A');
+    game.addPlayer('B', 'B');
+    game.addPlayer('C', 'C');
+    expect(() => game.configure({ maxPlayers: 2, rounds: 3, roundTimeMs: 60_000 })).toThrow(
+      new GameError('tooManyPlayers'),
+    );
+  });
+
+  it('게임 중에는 바꿀 수 없다', () => {
+    const { game } = startedGame();
+    expect(() => game.configure({ maxPlayers: 4, rounds: 1, roundTimeMs: 30_000 })).toThrow(
+      new GameError('notInLobby'),
+    );
   });
 });
